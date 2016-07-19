@@ -45,13 +45,14 @@ class Segment
 end
 
 class StandardCrossSection
-  attr_reader :height, :width, :broadside_radius, :turn_radius
+  attr_reader :height, :width, :broadside_radius, :turn_radius, :z
   
-  def initialize(height, width, broadside_radius, turn_radius)
+  def initialize(height, width, broadside_radius, turn_radius, z=0)
     @height=height
     @width=width
     @broadside_radius=broadside_radius
     @turn_radius=turn_radius
+    @z=z
   end
 
   def broadside_arc
@@ -77,12 +78,28 @@ class StandardCrossSection
     centre_x=x_from_broadside_centre+width/2-broadside_radius
     start_turn=Math.atan2(centre_y, x_from_broadside_centre)/TAU # Angle is the same as that of the turn itself
     end_turn=0.25
-    @turn_arc=Arc.new(Point.new(centre_x, centre_y, 0), turn_radius, start_turn..end_turn)
+    @turn_arc=Arc.new(Point.new(centre_x, centre_y, z), turn_radius, start_turn..end_turn)
     turn_start_point=@turn_arc.point(0)
     broadside_end=Math.atan2(turn_start_point.y, turn_start_point.x-(width/2-broadside_radius))/TAU
-    @broadside_arc=Arc.new(Point.new(width/2-broadside_radius, 0, 0), broadside_radius, 0..broadside_end)
+    @broadside_arc=Arc.new(Point.new(width/2-broadside_radius, 0, z), broadside_radius, 0..broadside_end)
   end
 
+  
+end
+
+class TaperEndCrossSection
+  attr_reader :radius, :theta, :z
+  attr_reader :broadside_arc, :turn_arc, :flat
+
+  def initialize(radius, theta, z)
+    @radius=radius
+    @theta=theta
+    @z=z
+
+    @broadside_arc=Arc.new(Point.new(0,0,z), radius, 0..(theta/TAU))
+    @turn_arc=Arc.new(Point.new(0,0,z), radius, (theta/TAU)..0.25)
+    @flat=Segment.new(Point.new(0,radius, z), Point.new(0,radius, z))
+  end
   
 end
 
@@ -112,17 +129,68 @@ def polyline(points)
   puts "<polyline points='#{points_string}' style='fill:none;stroke:black;stroke-width:0.1' />"
 end
 
-svg do
-  points = []
-  section=StandardCrossSection.new(25, 43, 13, 5.75)
 
-  barc=section.broadside_arc
-  polyline 21.times.map { |i| barc.point(i/20.0) }
+def strip(section1, section2, n, verts, polys)
+  segments=
+    (n.times.map { |i| Segment.new(section1.broadside_arc.point(i.to_f/n), section2.broadside_arc.point(i.to_f/n)) } +
+     n.times.map { |i| Segment.new(section1.turn_arc.point(i.to_f/n), section2.turn_arc.point(i.to_f/n)) } +
+     (n+1).times.map { |i| Segment.new(section1.flat.point(i.to_f/n), section2.flat.point(i.to_f/n)) }).map do |segment|
+    
+    verts << segment.first
+    i_first = verts.size
+    verts << segment.last
+    i_last = verts.size
+    [i_first, i_last]
+  end
 
-  tarc=section.turn_arc
-  polyline 21.times.map { |i| tarc.point(i/20.0) }
+  segments.each_cons(2) do |base, extent|
+    polys << [base[0], base[1], extent[1], extent[0]]
+  end
+end
 
-  flat=section.flat
-  polyline 21.times.map { |i| flat.point(i/20.0) }
+def obj
+  verts=[]
+  polys=[]
+  yield verts, polys
 
+  n=0
+  [[1,1,1],[1,-1,1], [-1,-1,1],[-1,1,1]].each do |flip|
+    verts.each do |vert|
+      puts "v #{vert.x*flip[0]} #{vert.y*flip[1]} #{vert.z*flip[2]}"
+    end
+    polys.each do |poly|
+      puts "f "+poly.map{|i| i+n}.join(" ")
+    end
+    n+=verts.size
+  end
+end
+
+if true
+  section1=StandardCrossSection.new(25, 43, 13, 5.75, 0)
+  section2=TaperEndCrossSection.new(9.9, TAU/8, 75.5)
+
+  obj do |verts, polys|
+    strip(section1, section2, 20, verts, polys)
+  end
+else
+  svg do
+    points = []
+    section1=StandardCrossSection.new(25, 43, 13, 5.75, 0)
+    section2=TaperEndCrossSection.new(9.9, TAU/8, 75.5)
+    
+    barc1=section1.broadside_arc
+    tarc1=section1.turn_arc
+    flat1=section1.flat
+    polyline 20.times.map { |i| barc1.point(i/20.0) } + 20.times.map { |i| tarc1.point(i/20.0) } + 21.times.map { |i| flat1.point(i/20.0) }
+    
+    barc2=section2.broadside_arc
+    tarc2=section2.turn_arc
+    flat2=section2.flat
+    polyline 20.times.map { |i| barc2.point(i/20.0) } + 20.times.map { |i| tarc2.point(i/20.0) } + 21.times.map { |i| flat2.point(i/20.0) }
+    
+    (20.times.map { |i| Segment.new(barc1.point(i/20.0), barc2.point(i/20.0))  } + 20.times.map { |i| Segment.new(tarc1.point(i/20.0), tarc2.point(i/20.0)) } + 21.times.map { |i| Segment.new(flat1.point(i/20.0), flat2.point(i/20.0)) }).each do |l|
+    polyline([l.first, l.last])
+    end
+    
+  end
 end
