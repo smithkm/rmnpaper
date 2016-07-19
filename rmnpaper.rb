@@ -67,8 +67,12 @@ class StandardCrossSection
 
   def flat
     first=turn_arc.point(1)
-    last=Point.new(0,height/2, 0)
+    last=Point.new(0,height/2, z)
     Segment.new(first, last)
+  end
+
+  def copy_at(new_z)
+    StandardCrossSection.new(height, width, broadside_radius, turn_radius, new_z)
   end
   
   private
@@ -83,7 +87,6 @@ class StandardCrossSection
     broadside_end=Math.atan2(turn_start_point.y, turn_start_point.x-(width/2-broadside_radius))/TAU
     @broadside_arc=Arc.new(Point.new(width/2-broadside_radius, 0, z), broadside_radius, 0..broadside_end)
   end
-
   
 end
 
@@ -91,7 +94,7 @@ class TaperEndCrossSection
   attr_reader :radius, :theta, :z
   attr_reader :broadside_arc, :turn_arc, :flat
 
-  def initialize(radius, theta, z)
+  def initialize(radius, theta, z=0)
     @radius=radius
     @theta=theta
     @z=z
@@ -100,7 +103,31 @@ class TaperEndCrossSection
     @turn_arc=Arc.new(Point.new(0,0,z), radius, (theta/TAU)..0.25)
     @flat=Segment.new(Point.new(0,radius, z), Point.new(0,radius, z))
   end
+
+  def copy_at(new_z)
+    TaperEndCrossSection.new(radius, theta, new_z)
+  end
   
+end
+
+class FlareStartCrossSection
+  attr_reader :radius, :theta1, :theta2, :z
+  attr_reader :broadside_arc, :turn_arc, :flat
+
+  def initialize(radius, theta1, theta2, z=0)
+    @radius=radius
+    @theta1=theta1
+    @theta2=theta2
+    @z=z
+
+    @broadside_arc=Arc.new(Point.new(0,0,z), radius, 0..(theta1/TAU))
+    @turn_arc=Arc.new(Point.new(0,0,z), radius, (theta1/TAU)..(theta2/TAU))
+    @flat=Arc.new(Point.new(0,0,z), radius, (theta2/TAU)..0.25)
+  end
+
+  def copy_at(new_z)
+    FlareStartCrossSection.new(radius, theta1, theta2, new_z)
+  end
 end
 
 class Point
@@ -148,6 +175,34 @@ def strip(section1, section2, n, verts, polys)
   end
 end
 
+def double_strip(section1, section2, n, verts, polys, p1, p2)
+  base_segments=n.times.map { |i| Segment.new(section1.broadside_arc.point(i.to_f/n), section2.broadside_arc.point(i.to_f/n)) } +
+                n.times.map { |i| Segment.new(section1.turn_arc.point(i.to_f/n), section2.turn_arc.point(i.to_f/n)) } +
+                (n+1).times.map { |i| Segment.new(section1.flat.point(i.to_f/n), section2.flat.point(i.to_f/n)) }
+  segments1=[]
+  segments2=[]
+  base_segments.map do |base|
+    avg_point=base.point(p1)
+    final_point=Point.new(avg_point.x, avg_point.y, base.point(p2).z)
+    segments1<< Segment.new(base.first, final_point)
+    segments2<< Segment.new(final_point, base.last)
+  end
+  [segments1,segments2].each do |segments|
+    mapped_segments = segments.map do |segment|
+      
+      verts << segment.first
+      i_first = verts.size
+      verts << segment.last
+      i_last = verts.size
+      [i_first, i_last]
+    end
+    
+    mapped_segments.each_cons(2) do |base, extent|
+      polys << [base[0], base[1], extent[1], extent[0]]
+    end
+  end
+end
+
 def obj
   verts=[]
   polys=[]
@@ -159,18 +214,90 @@ def obj
       puts "v #{vert.x*flip[0]} #{vert.y*flip[1]} #{vert.z*flip[2]}"
     end
     polys.each do |poly|
+      p=poly
+      p=poly.reverse if(flip.reduce(:*)<0)
       puts "f "+poly.map{|i| i+n}.join(" ")
     end
     n+=verts.size
   end
 end
 
-if true
-  section1=StandardCrossSection.new(25, 43, 13, 5.75, 0)
-  section2=TaperEndCrossSection.new(9.9, TAU/8, 75.5)
+draft=25
+beam=43
+radius_broadside=13
+radius_turn=5.75
+radius_taper=8.65
+forward_taper_length=75.5
+aft_taper_length=82.5
+centre_length=138
+imp_length=5
+flare_length=5.25
+forward_hammer_flat_length=9
+forward_hammer_taper_length=20
+forward_hammer_draft=12
+forward_hammer_beam=26.9
+forward_hammer_radius=6.05
 
+aft_hammer_flat_length=13
+aft_hammer_taper_length=9
+aft_hammer_draft=forward_hammer_draft
+aft_hammer_beam=forward_hammer_beam
+aft_hammer_radius=forward_hammer_radius
+
+
+flare_p1 = 0.25
+flare_p2 = 0.65
+
+n=100
+  
+if true
+  z=-367.5/2
+
+  full_cs = StandardCrossSection.new(draft, beam, radius_broadside, radius_turn)
+
+  full_turn_arc = full_cs.turn_arc
+
+  theta1 = Math::atan2(full_turn_arc.point(0).y, full_turn_arc.point(0).x)
+  theta2 = Math::atan2(full_turn_arc.point(1).y, full_turn_arc.point(1).x)
+ 
+  taper_cs = TaperEndCrossSection.new(radius_taper, (0.25*TAU-(theta2-theta1)+theta1)/2)
+  flare_cs =  FlareStartCrossSection.new(radius_taper, theta1, theta2)
+  nose_cs = StandardCrossSection.new(forward_hammer_draft, forward_hammer_beam, forward_hammer_radius, radius_turn)
+  tail_cs = StandardCrossSection.new(aft_hammer_draft, aft_hammer_beam, aft_hammer_radius, radius_turn)
+  
   obj do |verts, polys|
-    strip(section1, section2, 20, verts, polys)
+
+    [tail_cs.copy_at(z),
+     full_cs.copy_at(z+=aft_hammer_taper_length),
+     full_cs.copy_at(z+=aft_hammer_flat_length),
+     flare_cs.copy_at(z+=flare_length)
+    ].each_cons(2) do |section1, section2|
+      if(FlareStartCrossSection===section1 || FlareStartCrossSection===section2)
+        double_strip(section1, section2, n, verts, polys, flare_p1,flare_p2)
+      else
+        strip(section1, section2, n, verts, polys)
+      end
+    end
+    z+=imp_length
+    [taper_cs.copy_at(z),
+     full_cs.copy_at(z+=aft_taper_length),
+     full_cs.copy_at(z+=centre_length),
+     taper_cs.copy_at(z+=forward_taper_length)
+    ].each_cons(2) do |section1, section2|
+      strip(section1, section2, n, verts, polys)
+    end
+    z+=imp_length
+    [flare_cs.copy_at(z),
+     full_cs.copy_at(z+=flare_length),
+     full_cs.copy_at(z+=forward_hammer_flat_length),
+     nose_cs.copy_at(z+=forward_hammer_taper_length)
+    ].each_cons(2) do |section1, section2|
+      if(FlareStartCrossSection===section1 || FlareStartCrossSection===section2)
+        double_strip(section1, section2, n, verts, polys, 1-flare_p1, 1-flare_p2)
+      else
+        strip(section1, section2, n, verts, polys)
+      end
+    end
   end
 else
   svg do
