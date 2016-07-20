@@ -1,0 +1,13 @@
+GEM
+  remote: https://rubygems.org/
+  specs:
+    narray (0.6.1.2)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  narray
+
+BUNDLED WITH
+   1.12.0.rc.2
