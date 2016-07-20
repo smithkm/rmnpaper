@@ -171,7 +171,9 @@ def strip(section1, section2, n, verts, polys)
   end
 
   segments.each_cons(2) do |base, extent|
-    polys << [base[0], base[1], extent[1], extent[0]]
+#    polys << [base[0], base[1], extent[1], extent[0]]
+    polys << [base[0], base[1], extent[1]]
+    polys << [base[0], extent[1], extent[0]]
   end
 end
 
@@ -222,24 +224,56 @@ def obj
   end
 end
 
-draft=25
-beam=43
-radius_broadside=13
-radius_turn=5.75
-radius_taper=8.65
-forward_taper_length=75.5
-aft_taper_length=82.5
-centre_length=138
-imp_length=5
-flare_length=5.25
-forward_hammer_flat_length=9
-forward_hammer_taper_length=20
-forward_hammer_draft=12
-forward_hammer_beam=26.9
-forward_hammer_radius=6.05
+# Chanson
 
-aft_hammer_flat_length=13
-aft_hammer_taper_length=9
+#draft=25
+#beam=43
+#radius_broadside=13
+#radius_turn=5.75
+#radius_taper=8.65
+#forward_taper_length=75.5
+#aft_taper_length=82.5
+#centre_length=138
+#imp_length=5
+#flare_length=5.25
+#forward_hammer_flat_length=9
+#forward_hammer_taper_length=20
+#forward_hammer_draft=12
+#forward_hammer_beam=26.9
+#forward_hammer_radius=6.05
+
+#aft_hammer_flat_length=13
+#aft_hammer_taper_length=9
+#aft_hammer_draft=forward_hammer_draft
+#aft_hammer_beam=forward_hammer_beam
+#aft_hammer_radius=forward_hammer_radius
+
+
+#flare_p1 = 0.25
+#flare_p2 = 0.65
+
+
+
+# Wolfhound
+
+draft=29
+beam=51
+radius_broadside=15
+radius_turn=5.75
+radius_taper=9.7
+forward_taper_length=87.5
+aft_taper_length=95
+centre_length=155
+imp_length=5.25
+flare_length=6
+forward_hammer_flat_length=10
+forward_hammer_taper_length=26
+forward_hammer_draft=13
+forward_hammer_beam=24.5
+forward_hammer_radius=6.25
+
+aft_hammer_flat_length=21
+aft_hammer_taper_length=11
 aft_hammer_draft=forward_hammer_draft
 aft_hammer_beam=forward_hammer_beam
 aft_hammer_radius=forward_hammer_radius
@@ -248,10 +282,13 @@ aft_hammer_radius=forward_hammer_radius
 flare_p1 = 0.25
 flare_p2 = 0.65
 
-n=100
+
+# Segments per patch
+
+n=10
   
 if true
-  z=-367.5/2
+  z=-428/2
 
   full_cs = StandardCrossSection.new(draft, beam, radius_broadside, radius_turn)
 
