@@ -137,6 +137,10 @@ class Point
     @y=y
     @z=z
   end
+
+  def to_vec
+    Vector[x,y,z]
+  end
 end
 
 def svg
@@ -205,6 +209,34 @@ def double_strip(section1, section2, n, verts, polys, p1, p2)
   end
 end
 
+def orthonormal(p1, p2, p3)
+  u1 = p2.to_vec - p1.to_vec
+  v1 = p3.to_vec - p2.to_vec
+
+  u2 = u1.normalize
+  v2 = v1-u2*(v1.inner_product u2)
+  w2 = u2.cross_product v2
+end
+
+def flat_strip(section1, section2, n)
+  segments=
+    (n.times.map { |i| Segment.new(section1.broadside_arc.point(i.to_f/n), section2.broadside_arc.point(i.to_f/n)) } +
+     n.times.map { |i| Segment.new(section1.turn_arc.point(i.to_f/n), section2.turn_arc.point(i.to_f/n)) } +
+     (n+1).times.map { |i| Segment.new(section1.flat.point(i.to_f/n), section2.flat.point(i.to_f/n)) }).map do |segment|
+    
+    [segment.first.to_nvec, segment.last.to_nvec]
+  end
+  
+  base_line = [Vector[0,0,0], Vector[segments[0],0,0]]
+  
+  segments.each_cons(2) do |base, extent|
+#    polys << [base[0], base[1], extent[1], extent[0]]
+    polys << [base[0], base[1], extent[1]]
+    polys << [base[0], extent[1], extent[0]]
+  end
+
+end
+
 def obj
   verts=[]
   polys=[]
@@ -260,20 +292,22 @@ draft=29
 beam=51
 radius_broadside=15
 radius_turn=5.75
-radius_taper=9.7
-forward_taper_length=87.5
-aft_taper_length=95
-centre_length=155
-imp_length=5.25
-flare_length=6
-forward_hammer_flat_length=10
-forward_hammer_taper_length=26
-forward_hammer_draft=13
-forward_hammer_beam=24.5
-forward_hammer_radius=6.25
+radius_taper=10.25
+forward_taper_length=88.25
+aft_taper_length=81
+centre_length=170
+imp_length=4.5
+imp_radius=11
+imp_bevel=0.5
+flare_length=4.5
+forward_hammer_flat_length=18.5
+forward_hammer_taper_length=27.5
+forward_hammer_draft=18
+forward_hammer_beam=30
+forward_hammer_radius=9.25
 
-aft_hammer_flat_length=21
-aft_hammer_taper_length=11
+aft_hammer_flat_length=23.75
+aft_hammer_taper_length=14.25
 aft_hammer_draft=forward_hammer_draft
 aft_hammer_beam=forward_hammer_beam
 aft_hammer_radius=forward_hammer_radius
@@ -286,7 +320,7 @@ flare_p2 = 0.65
 # Segments per patch
 
 n=10
-  
+
 if true
   z=-428/2
 
@@ -301,21 +335,33 @@ if true
   flare_cs =  FlareStartCrossSection.new(radius_taper, theta1, theta2)
   nose_cs = StandardCrossSection.new(forward_hammer_draft, forward_hammer_beam, forward_hammer_radius, radius_turn)
   tail_cs = StandardCrossSection.new(aft_hammer_draft, aft_hammer_beam, aft_hammer_radius, radius_turn)
+  impeller_cs = FlareStartCrossSection.new(imp_radius, theta1, theta2)
+  nil_cs = FlareStartCrossSection.new(0, theta1, theta2)
   
   obj do |verts, polys|
 
-    [tail_cs.copy_at(z),
+    [nil_cs.copy_at(z),
+     tail_cs.copy_at(z),
      full_cs.copy_at(z+=aft_hammer_taper_length),
      full_cs.copy_at(z+=aft_hammer_flat_length),
      flare_cs.copy_at(z+=flare_length)
     ].each_cons(2) do |section1, section2|
+      $stderr.puts [section1.inspect, section2.inspect].inspect
       if(FlareStartCrossSection===section1 || FlareStartCrossSection===section2)
         double_strip(section1, section2, n, verts, polys, flare_p1,flare_p2)
       else
         strip(section1, section2, n, verts, polys)
       end
     end
-    z+=imp_length
+
+    [flare_cs.copy_at(z),
+     impeller_cs.copy_at(z+=imp_bevel),
+     impeller_cs.copy_at(z+=imp_length-imp_bevel*2),
+     flare_cs.copy_at(z+=imp_bevel)
+    ].each_cons(2) do |section1, section2|
+      strip(section1, section2, n, verts, polys)
+    end
+    
     [taper_cs.copy_at(z),
      full_cs.copy_at(z+=aft_taper_length),
      full_cs.copy_at(z+=centre_length),
@@ -323,11 +369,20 @@ if true
     ].each_cons(2) do |section1, section2|
       strip(section1, section2, n, verts, polys)
     end
-    z+=imp_length
+    
+    [flare_cs.copy_at(z),
+     impeller_cs.copy_at(z+=imp_bevel),
+     impeller_cs.copy_at(z+=imp_length-imp_bevel*2),
+     flare_cs.copy_at(z+=imp_bevel)
+    ].each_cons(2) do |section1, section2|
+      strip(section1, section2, n, verts, polys)
+    end
+    
     [flare_cs.copy_at(z),
      full_cs.copy_at(z+=flare_length),
      full_cs.copy_at(z+=forward_hammer_flat_length),
-     nose_cs.copy_at(z+=forward_hammer_taper_length)
+     nose_cs.copy_at(z+=forward_hammer_taper_length),
+     nil_cs.copy_at(z)
     ].each_cons(2) do |section1, section2|
       if(FlareStartCrossSection===section1 || FlareStartCrossSection===section2)
         double_strip(section1, section2, n, verts, polys, 1-flare_p1, 1-flare_p2)
