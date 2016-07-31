@@ -17,13 +17,19 @@ class Arc
   end
   
   def point(t)
-    real_t=TAU*absolute_parameter(t)
-    
+    point_absolute(absolute_parameter(t))
+  end
+
+  def point_absolute(t)
     Point.new(
-      radius*Math::cos(real_t)+centre.x,
-      radius*Math::sin(real_t)+centre.y,
+      radius*Math::cos(TAU*t)+centre.x,
+      radius*Math::sin(TAU*t)+centre.y,
       centre.z
     )
+  end
+  
+  def include?(theta)
+    range.include?(theta/TAU)
   end
 end
 
@@ -42,6 +48,9 @@ class Segment
       last.z*t+first.z*(1-t))
   end
 
+  def mirror(axis)
+    Segment.new(first.mirror(axis), last.mirror(axis))
+  end
 end
 
 class StandardCrossSection
@@ -74,6 +83,11 @@ class StandardCrossSection
   def copy_at(new_z)
     StandardCrossSection.new(height, width, broadside_radius, turn_radius, new_z)
   end
+
+  def point_for_param(t)
+    return broadside_arc.point_absolute t/4 if(broadside_arc.range.include? t/4)
+    return turn_arc.point_absolute t/4
+  end
   
   private
   def build_arcs
@@ -82,10 +96,10 @@ class StandardCrossSection
     centre_x=x_from_broadside_centre+width/2-broadside_radius
     start_turn=Math.atan2(centre_y, x_from_broadside_centre)/TAU # Angle is the same as that of the turn itself
     end_turn=0.25
-    @turn_arc=Arc.new(Point.new(centre_x, centre_y, z), turn_radius, start_turn..end_turn)
+    @turn_arc=Arc.new(Point.new(centre_x, centre_y, z), turn_radius, start_turn...end_turn)
     turn_start_point=@turn_arc.point(0)
     broadside_end=Math.atan2(turn_start_point.y, turn_start_point.x-(width/2-broadside_radius))/TAU
-    @broadside_arc=Arc.new(Point.new(width/2-broadside_radius, 0, z), broadside_radius, 0..broadside_end)
+    @broadside_arc=Arc.new(Point.new(width/2-broadside_radius, 0, z), broadside_radius, 0...broadside_end)
   end
   
 end
@@ -107,7 +121,15 @@ class TaperEndCrossSection
   def copy_at(new_z)
     TaperEndCrossSection.new(radius, theta, new_z)
   end
-  
+
+  def point_for_param(t)
+    Point.new(
+      radius*Math::cos(TAU/4*t),
+      radius*Math::sin(TAU/4*t),
+      z
+    )
+  end
+
 end
 
 class FlareStartCrossSection
@@ -128,6 +150,14 @@ class FlareStartCrossSection
   def copy_at(new_z)
     FlareStartCrossSection.new(radius, theta1, theta2, new_z)
   end
+  
+  def point_for_param(t)
+    Point.new(
+      radius*Math::cos(TAU/4*t),
+      radius*Math::sin(TAU/4*t),
+      z
+    )
+  end
 end
 
 class Point
@@ -140,6 +170,19 @@ class Point
 
   def to_vec
     Vector[x,y,z]
+  end
+
+  def mirror(axis)
+    case axis
+    when :x
+      Point.new(-x,y,z)
+    when :y
+      Point.new(x,-y,z)
+    when :z
+      Point.new(x,y,-z)
+    else
+      raise "Not a valid axis #{axis}"
+    end
   end
 end
 
@@ -163,9 +206,18 @@ end
 
 def strip(section1, section2, n, verts, polys)
   segments=
-    (n.times.map { |i| Segment.new(section1.broadside_arc.point(i.to_f/n), section2.broadside_arc.point(i.to_f/n)) } +
-     n.times.map { |i| Segment.new(section1.turn_arc.point(i.to_f/n), section2.turn_arc.point(i.to_f/n)) } +
-     (n+1).times.map { |i| Segment.new(section1.flat.point(i.to_f/n), section2.flat.point(i.to_f/n)) }).map do |segment|
+    (n+1).times.map { |i| Segment.new(section1.point_for_param(i.to_f/n), section2.point_for_param(i.to_f/n)) }
+
+  if(segments[-1].first.x!=0.0 and segments[-1].last.x!=0.0)
+    segments<< Segment.new(
+      Point.new(0, segments[-1].first.y, segments[-1].first.z),
+      Point.new(0, segments[-1].last.y, segments[-1].last.z)
+    )
+  end
+  segments.reverse!
+  segments+=segments.reverse.map {|segment| segment.mirror :y}
+  
+  segments.map! do |segment|
     
     verts << segment.first
     i_first = verts.size
@@ -175,16 +227,20 @@ def strip(section1, section2, n, verts, polys)
   end
 
   segments.each_cons(2) do |base, extent|
-#    polys << [base[0], base[1], extent[1], extent[0]]
-    polys << [base[0], base[1], extent[1]]
-    polys << [base[0], extent[1], extent[0]]
+    polys << [base[0], base[1], extent[1], extent[0]]
   end
 end
 
 def double_strip(section1, section2, n, verts, polys, p1, p2)
-  base_segments=n.times.map { |i| Segment.new(section1.broadside_arc.point(i.to_f/n), section2.broadside_arc.point(i.to_f/n)) } +
-                n.times.map { |i| Segment.new(section1.turn_arc.point(i.to_f/n), section2.turn_arc.point(i.to_f/n)) } +
-                (n+1).times.map { |i| Segment.new(section1.flat.point(i.to_f/n), section2.flat.point(i.to_f/n)) }
+  base_segments= (n+1).times.map { |i| Segment.new(section1.point_for_param(i.to_f/n), section2.point_for_param(i.to_f/n)) }
+  if(base_segments[-1].first.x!=0.0 and base_segments[-1].last.x!=0.0)
+    base_segments<< Segment.new(
+      Point.new(0, base_segments[-1].first.y, base_segments[-1].first.z),
+      Point.new(0, base_segments[-1].last.y, base_segments[-1].last.z)
+    )
+  end
+  base_segments.reverse!
+  base_segments+=base_segments.reverse.map {|segment| segment.mirror :y}
   segments1=[]
   segments2=[]
   base_segments.map do |base|
@@ -243,7 +299,9 @@ def obj
   yield verts, polys
 
   n=0
-  [[1,1,1],[1,-1,1], [-1,-1,1],[-1,1,1]].each do |flip|
+  flips=[[1,1,1],[1,-1,1], [-1,-1,1],[-1,1,1]]
+  flips=[[1,1,1]]
+  flips.each do |flip|
     verts.each do |vert|
       puts "v #{vert.x*flip[0]} #{vert.y*flip[1]} #{vert.z*flip[2]}"
     end
@@ -340,7 +398,7 @@ if true
   
   obj do |verts, polys|
 
-    [nil_cs.copy_at(z),
+    [#nil_cs.copy_at(z),
      tail_cs.copy_at(z),
      full_cs.copy_at(z+=aft_hammer_taper_length),
      full_cs.copy_at(z+=aft_hammer_flat_length),
@@ -381,8 +439,8 @@ if true
     [flare_cs.copy_at(z),
      full_cs.copy_at(z+=flare_length),
      full_cs.copy_at(z+=forward_hammer_flat_length),
-     nose_cs.copy_at(z+=forward_hammer_taper_length),
-     nil_cs.copy_at(z)
+     nose_cs.copy_at(z+=forward_hammer_taper_length)#,
+     #nil_cs.copy_at(z)
     ].each_cons(2) do |section1, section2|
       if(FlareStartCrossSection===section1 || FlareStartCrossSection===section2)
         double_strip(section1, section2, n, verts, polys, 1-flare_p1, 1-flare_p2)
